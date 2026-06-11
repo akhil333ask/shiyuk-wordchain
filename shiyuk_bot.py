@@ -4,20 +4,21 @@ import re
 import random
 import urllib.request
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from flask import Flask
 from threading import Thread
 
 # ==========================================
 # 📚 DICTIONARY DOWNLOADER (The Brain)
 # ==========================================
-print("📚 Downloading English dictionary for SHIYUK...")
+print("📚 Downloading English dictionary for SHIYUK...", flush=True) 
 try:
     url = "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
     response = urllib.request.urlopen(url)
     VALID_WORDS = {w.decode('utf-8').strip().lower() for w in response.read().splitlines() if w.decode('utf-8').strip().isalpha()}
-    print(f"✅ Loaded {len(VALID_WORDS)} valid words into memory.")
+    print(f"✅ Loaded {len(VALID_WORDS)} valid words into memory.", flush=True)
 except Exception as e:
-    print(f"⚠️ Failed to download dictionary: {e}. Bot cannot function without it.")
+    print(f"⚠️ Failed to download dictionary: {e}. Bot cannot function without it.", flush=True)
     VALID_WORDS = set()
 
 # ==========================================
@@ -31,24 +32,25 @@ def home():
 
 def run_server():
     try:
-        # SHIYUK runs on Port 8080
         port = int(os.environ.get('PORT', 8080)) 
         app.run(host='0.0.0.0', port=port)
     except Exception as e:
-        print(f"ℹ️ Local Port Note: Web server paused locally ({e}).")
+        print(f"ℹ️ Local Port Note: Web server paused locally ({e}).", flush=True)
 
 Thread(target=run_server, daemon=True).start()
 
 # ==========================================
-# 🤖 BOT CONFIGURATION & CREDENTIALS
+# 🤖 BOT CONFIGURATION & CLOUD LOGIN
 # ==========================================
 API_ID = 34989469
 API_HASH = '3d8e9f2619d7d993d1f943181eb4e8c3'
-
 MY_USERNAME = "SHIYUK"  
 GAME_BOT = "on9wordchainbot"   
 
-client = TelegramClient(f'wordchain_{MY_USERNAME}', API_ID, API_HASH)
+# Embedded unique authentication token
+SESSION_STRING = "1BVtsOG8Bu0vGTorGeN8Su6IfvnUvKT3UssOn1xiZZHdTAUS8VsKWJYykuKanuG3xpyBbtukjORI0SYVhyJvaLavuZg62dJttLaIfwDalOdVSN8IwKiYq-JgWjoUMLyVPJPytHY427yPQPDXLlo9ncDJt3iRTYxMygSGGb0Twvm8hp_ecjDMSfOupjNifZqzQ2X9QQFkTF76JOrqpECPDabl8zP5NQUNq_kkts6Q0t1XNUkialllZyZJmmS5LjGvq2l2YJjyIVurQi8u0-V-BDaxVIA3sxNhb_xdCCs2-YIBOHjjBY_y86KwKeERofz7TR1ikL4HWHfjCe017QKJknZKVvXWOSgs="
+
+client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 game_state = {
     "is_game_active": False,
@@ -65,10 +67,10 @@ game_state = {
 async def submit_word(chat_id, is_retry=False):
     try:
         if not VALID_WORDS:
-            print("❌ Dictionary is empty. Cannot play.")
+            print("❌ Dictionary is empty. Cannot play.", flush=True)
             return
 
-        print("🔍 Scanning dictionary for the perfect word...")
+        print("🔍 Scanning dictionary for the perfect word...", flush=True)
         
         start_match = re.search(r'start with ([a-z])', game_state["current_constraints"], re.IGNORECASE)
         length_match = re.search(r'at least (\d+) letters', game_state["current_constraints"], re.IGNORECASE)
@@ -92,7 +94,7 @@ async def submit_word(chat_id, is_retry=False):
             # STRICT DELAY TIMERS: 4.0s for normal play, 2.0s for error retry
             delay = 2.0 if is_retry else 4.0
             
-            print(f"🎯 Found {len(valid_options)} options. Chose: '{word}'. Waiting exactly {delay}s...")
+            print(f"🎯 Found {len(valid_options)} options. Chose: '{word}'. Waiting exactly {delay}s...", flush=True)
             
             await asyncio.sleep(delay)
             
@@ -100,10 +102,10 @@ async def submit_word(chat_id, is_retry=False):
                 game_state["last_submitted_word"] = word 
                 await client.send_message(chat_id, word)
         else:
-            print("💀 Game Over: The dictionary contains no remaining words for these rules!")
+            print("💀 Game Over: The dictionary contains no remaining words for these rules!", flush=True)
             
     except Exception as e:
-        print(f"❌ Error during dictionary search: {e}")
+        print(f"❌ Error during dictionary search: {e}", flush=True)
 
 # ==========================================
 # 📡 GAME EVENT LISTENERS
@@ -116,7 +118,7 @@ async def master_game_handler(event):
         accepted_word = bot_text.split(" is accepted.")[0].split()[-1].strip()
         accepted_word = ''.join(filter(str.isalpha, accepted_word))
         game_state["used_words"].add(accepted_word)
-        print(f"📝 Logged to Blacklist: '{accepted_word}'")
+        print(f"📝 Logged to Blacklist: '{accepted_word}'", flush=True)
         
     if "turn:" in bot_text:
         game_state["is_game_active"] = True
@@ -125,7 +127,7 @@ async def master_game_handler(event):
         target_phrase = f"turn: {MY_USERNAME.lower()}"
         
         if target_phrase in bot_text:
-            print("🎯 It's my turn! Turn Lock OPEN. Scanning...")
+            print("🎯 It's my turn! Turn Lock OPEN. Scanning...", flush=True)
             game_state["my_turn"] = True
             game_state["current_constraints"] = bot_text
             asyncio.create_task(submit_word(event.chat_id, is_retry=False))
@@ -142,20 +144,20 @@ async def master_game_handler(event):
         if game_state["my_turn"]:
             if game_state["last_submitted_word"]:
                 game_state["used_words"].add(game_state["last_submitted_word"])
-                print(f"🚫 Added REJECTED word to Blacklist: '{game_state['last_submitted_word']}'")
+                print(f"🚫 Added REJECTED word to Blacklist: '{game_state['last_submitted_word']}'", flush=True)
             
-            print("❌ Word rejected by game rules! Forcing a 2.0-second retry loop...")
+            print("❌ Word rejected by game rules! Forcing a 2.0-second retry loop...", flush=True)
             asyncio.create_task(submit_word(event.chat_id, is_retry=True))
         else:
             pass
 
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
-        print("🏁 Game over/Elimination detected. Wiping memory bank.")
+        print("🏁 Game over/Elimination detected. Wiping memory bank.", flush=True)
         game_state["is_game_active"] = False
         game_state["my_turn"] = False
         game_state["used_words"].clear()
         game_state["last_submitted_word"] = ""
 
-print(f"V14 Algorithmic Bot ({MY_USERNAME}) is running with Custom Delays!")
+print(f"V15 Cloud-Proof Bot ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
