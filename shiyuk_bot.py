@@ -91,14 +91,21 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             valid_options.append(w)
             
         if valid_options:
-            word = random.choice(valid_options)
-            delay = 2.0 if is_retry else 4.0
+            # 🧠 NEW: Dynamic Length Buffer (Try to stay within +2 letters of the minimum)
+            preferred_options = [w for w in valid_options if len(w) <= min_len + 2]
             
-            print(f"[{chat_id}] 🎯 Found options. Chose: '{word}'. Waiting exactly {delay}s...", flush=True)
+            if preferred_options:
+                word = random.choice(preferred_options)
+                print(f"[{chat_id}] 🎯 Smart Sizing Active: Chose '{word}' (Length: {len(word)}).", flush=True)
+            else:
+                word = random.choice(valid_options)
+                print(f"[{chat_id}] ⚠️ Safety Net: No short words left. Falling back to '{word}'.", flush=True)
+            
+            delay = 2.0 if is_retry else 4.0
+            print(f"[{chat_id}] ⏳ Waiting exactly {delay}s...", flush=True)
             
             await asyncio.sleep(delay)
             
-            # Lock word in isolated memory and send instantly
             state["last_submitted_word"] = word 
             await client.send_message(chat_id, word)
         else:
@@ -116,25 +123,20 @@ async def master_game_handler(event):
     state = get_game_state(chat_id)
     bot_text = event.raw_text.lower().replace('\n', ' ').replace('\r', ' ')
     
-    # 1. ULTIMATE TRACKER (ISOLATED)
     if "is accepted." in bot_text:
         accepted_word = bot_text.split(" is accepted.")[0].split()[-1].strip()
         accepted_word = ''.join(filter(str.isalpha, accepted_word))
         state["used_words"].add(accepted_word)
         print(f"[{chat_id}] 📝 Logged to Blacklist: '{accepted_word}'", flush=True)
         
-    # 2. TURN HANDLER
     if "turn:" in bot_text:
-        # Save constraints to local chat state immediately
         state["current_constraints"] = bot_text 
         target_phrase = f"turn: {MY_USERNAME.lower()}"
         
         if target_phrase in bot_text:
             print(f"[{chat_id}] 🎯 It's my turn! Turn Lock OPEN.", flush=True)
-            # Pass isolated constraints and state into the solver
             asyncio.create_task(submit_word(chat_id, bot_text, state, is_retry=False))
 
-    # 3. REJECTION HANDLER
     error_phrases = [
         "has been used", "not a valid word", "invalid", 
         "not in my list of words", "has less than",      
@@ -142,7 +144,6 @@ async def master_game_handler(event):
     ]
     
     if any(phrase in bot_text for phrase in error_phrases):
-        # Check if the error is directed specifically at US in this chat
         if MY_USERNAME.lower() in bot_text:
             if state["last_submitted_word"]:
                 state["used_words"].add(state["last_submitted_word"])
@@ -151,12 +152,11 @@ async def master_game_handler(event):
             print(f"[{chat_id}] ❌ Word rejected! Forcing 2.0s retry...", flush=True)
             asyncio.create_task(submit_word(chat_id, state["current_constraints"], state, is_retry=True))
 
-    # 4. GAME OVER HANDLER
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
         print(f"[{chat_id}] 🏁 Game over/Elimination detected. Wiping isolated memory.", flush=True)
         state["used_words"].clear()
         state["last_submitted_word"] = ""
 
-print(f"V16 Multi-Chat Isolated Bot ({MY_USERNAME}) is running!", flush=True)
+print(f"V17 Smart Sizing Bot ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
