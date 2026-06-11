@@ -9,7 +9,7 @@ from flask import Flask
 from threading import Thread
 
 # ==========================================
-# 📚 DICTIONARY DOWNLOADER (The Brain)
+# 📚 DICTIONARY DOWNLOADER 
 # ==========================================
 print("📚 Downloading English dictionary for SHIYUK...", flush=True) 
 try:
@@ -47,34 +47,36 @@ API_HASH = '3d8e9f2619d7d993d1f943181eb4e8c3'
 MY_USERNAME = "SHIYUK"  
 GAME_BOT = "on9wordchainbot"   
 
-# Embedded unique authentication token
 SESSION_STRING = "1BVtsOG8Bu0vGTorGeN8Su6IfvnUvKT3UssOn1xiZZHdTAUS8VsKWJYykuKanuG3xpyBbtukjORI0SYVhyJvaLavuZg62dJttLaIfwDalOdVSN8IwKiYq-JgWjoUMLyVPJPytHY427yPQPDXLlo9ncDJt3iRTYxMygSGGb0Twvm8hp_ecjDMSfOupjNifZqzQ2X9QQFkTF76JOrqpECPDabl8zP5NQUNq_kkts6Q0t1XNUkialllZyZJmmS5LjGvq2l2YJjyIVurQi8u0-V-BDaxVIA3sxNhb_xdCCs2-YIBOHjjBY_y86KwKeERofz7TR1ikL4HWHfjCe017QKJknZKVvXWOSgs="
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
-game_state = {
-    "is_game_active": False,
-    "my_turn": False,            
-    "current_constraints": "",
-    "used_words": set(),         
-    "last_group_id": None,
-    "last_submitted_word": "" 
-}
+# 🧠 MULTI-CHAT ISOLATION BANK
+active_games = {}
+
+def get_game_state(chat_id):
+    if chat_id not in active_games:
+        active_games[chat_id] = {
+            "current_constraints": "",
+            "used_words": set(),
+            "last_submitted_word": ""
+        }
+    return active_games[chat_id]
 
 # ==========================================
 # ⚙️ PURE ALGORITHMIC SOLVER
 # ==========================================
-async def submit_word(chat_id, is_retry=False):
+async def submit_word(chat_id, constraints, state, is_retry=False):
     try:
         if not VALID_WORDS:
             print("❌ Dictionary is empty. Cannot play.", flush=True)
             return
 
-        print("🔍 Scanning dictionary for the perfect word...", flush=True)
+        print(f"[{chat_id}] 🔍 Scanning dictionary...", flush=True)
         
-        start_match = re.search(r'start with ([a-z])', game_state["current_constraints"], re.IGNORECASE)
-        length_match = re.search(r'at least (\d+) letters', game_state["current_constraints"], re.IGNORECASE)
-        include_match = re.search(r'(?:include|contain) ([a-z])', game_state["current_constraints"], re.IGNORECASE)
+        start_match = re.search(r'start with ([a-z])', constraints, re.IGNORECASE)
+        length_match = re.search(r'at least (\d+) letters', constraints, re.IGNORECASE)
+        include_match = re.search(r'(?:include|contain) ([a-z])', constraints, re.IGNORECASE)
 
         s_char = start_match.group(1).lower() if start_match else ""
         min_len = int(length_match.group(1)) if length_match else 1
@@ -85,24 +87,22 @@ async def submit_word(chat_id, is_retry=False):
             if s_char and not w.startswith(s_char): continue
             if len(w) < min_len: continue
             if i_char and i_char not in w: continue
-            if w in game_state["used_words"]: continue
+            if w in state["used_words"]: continue
             valid_options.append(w)
             
         if valid_options:
             word = random.choice(valid_options)
-            
-            # STRICT DELAY TIMERS: 4.0s for normal play, 2.0s for error retry
             delay = 2.0 if is_retry else 4.0
             
-            print(f"🎯 Found {len(valid_options)} options. Chose: '{word}'. Waiting exactly {delay}s...", flush=True)
+            print(f"[{chat_id}] 🎯 Found options. Chose: '{word}'. Waiting exactly {delay}s...", flush=True)
             
             await asyncio.sleep(delay)
             
-            if game_state["my_turn"]:
-                game_state["last_submitted_word"] = word 
-                await client.send_message(chat_id, word)
+            # Lock word in isolated memory and send instantly
+            state["last_submitted_word"] = word 
+            await client.send_message(chat_id, word)
         else:
-            print("💀 Game Over: The dictionary contains no remaining words for these rules!", flush=True)
+            print(f"[{chat_id}] 💀 Game Over: The dictionary contains no remaining words for these rules!", flush=True)
             
     except Exception as e:
         print(f"❌ Error during dictionary search: {e}", flush=True)
@@ -112,28 +112,29 @@ async def submit_word(chat_id, is_retry=False):
 # ==========================================
 @client.on(events.NewMessage(from_users=GAME_BOT))
 async def master_game_handler(event):
+    chat_id = event.chat_id
+    state = get_game_state(chat_id)
     bot_text = event.raw_text.lower().replace('\n', ' ').replace('\r', ' ')
     
+    # 1. ULTIMATE TRACKER (ISOLATED)
     if "is accepted." in bot_text:
         accepted_word = bot_text.split(" is accepted.")[0].split()[-1].strip()
         accepted_word = ''.join(filter(str.isalpha, accepted_word))
-        game_state["used_words"].add(accepted_word)
-        print(f"📝 Logged to Blacklist: '{accepted_word}'", flush=True)
+        state["used_words"].add(accepted_word)
+        print(f"[{chat_id}] 📝 Logged to Blacklist: '{accepted_word}'", flush=True)
         
+    # 2. TURN HANDLER
     if "turn:" in bot_text:
-        game_state["is_game_active"] = True
-        game_state["last_group_id"] = event.chat_id
-        
+        # Save constraints to local chat state immediately
+        state["current_constraints"] = bot_text 
         target_phrase = f"turn: {MY_USERNAME.lower()}"
         
         if target_phrase in bot_text:
-            print("🎯 It's my turn! Turn Lock OPEN. Scanning...", flush=True)
-            game_state["my_turn"] = True
-            game_state["current_constraints"] = bot_text
-            asyncio.create_task(submit_word(event.chat_id, is_retry=False))
-        else:
-            game_state["my_turn"] = False
+            print(f"[{chat_id}] 🎯 It's my turn! Turn Lock OPEN.", flush=True)
+            # Pass isolated constraints and state into the solver
+            asyncio.create_task(submit_word(chat_id, bot_text, state, is_retry=False))
 
+    # 3. REJECTION HANDLER
     error_phrases = [
         "has been used", "not a valid word", "invalid", 
         "not in my list of words", "has less than",      
@@ -141,23 +142,21 @@ async def master_game_handler(event):
     ]
     
     if any(phrase in bot_text for phrase in error_phrases):
-        if game_state["my_turn"]:
-            if game_state["last_submitted_word"]:
-                game_state["used_words"].add(game_state["last_submitted_word"])
-                print(f"🚫 Added REJECTED word to Blacklist: '{game_state['last_submitted_word']}'", flush=True)
+        # Check if the error is directed specifically at US in this chat
+        if MY_USERNAME.lower() in bot_text:
+            if state["last_submitted_word"]:
+                state["used_words"].add(state["last_submitted_word"])
+                print(f"[{chat_id}] 🚫 Added REJECTED word to Blacklist: '{state['last_submitted_word']}'", flush=True)
             
-            print("❌ Word rejected by game rules! Forcing a 2.0-second retry loop...", flush=True)
-            asyncio.create_task(submit_word(event.chat_id, is_retry=True))
-        else:
-            pass
+            print(f"[{chat_id}] ❌ Word rejected! Forcing 2.0s retry...", flush=True)
+            asyncio.create_task(submit_word(chat_id, state["current_constraints"], state, is_retry=True))
 
+    # 4. GAME OVER HANDLER
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
-        print("🏁 Game over/Elimination detected. Wiping memory bank.", flush=True)
-        game_state["is_game_active"] = False
-        game_state["my_turn"] = False
-        game_state["used_words"].clear()
-        game_state["last_submitted_word"] = ""
+        print(f"[{chat_id}] 🏁 Game over/Elimination detected. Wiping isolated memory.", flush=True)
+        state["used_words"].clear()
+        state["last_submitted_word"] = ""
 
-print(f"V15 Cloud-Proof Bot ({MY_USERNAME}) is running!", flush=True)
+print(f"V16 Multi-Chat Isolated Bot ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
