@@ -59,7 +59,8 @@ def get_game_state(chat_id):
         active_games[chat_id] = {
             "current_constraints": "",
             "used_words": set(),
-            "last_submitted_word": ""
+            "last_submitted_word": "",
+            "my_turn": False 
         }
     return active_games[chat_id]
 
@@ -75,11 +76,11 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
         print(f"[{chat_id}] 🔍 Scanning dictionary...", flush=True)
         
         start_match = re.search(r'start with ([a-z])', constraints, re.IGNORECASE)
-        length_match = re.search(r'at least (\d+) letters', constraints, re.IGNORECASE)
+        length_matches = re.findall(r'at least (\d+) letters', constraints, re.IGNORECASE)
         include_match = re.search(r'(?:include|contain) ([a-z])', constraints, re.IGNORECASE)
 
         s_char = start_match.group(1).lower() if start_match else ""
-        min_len = int(length_match.group(1)) if length_match else 1
+        min_len = int(length_matches[-1]) if length_matches else 1
         i_char = include_match.group(1).lower() if include_match else ""
         
         valid_options = []
@@ -91,7 +92,6 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             valid_options.append(w)
             
         if valid_options:
-            # 🧠 NEW: Dynamic Length Buffer (Try to stay within +2 letters of the minimum)
             preferred_options = [w for w in valid_options if len(w) <= min_len + 2]
             
             if preferred_options:
@@ -102,9 +102,11 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
                 print(f"[{chat_id}] ⚠️ Safety Net: No short words left. Falling back to '{word}'.", flush=True)
             
             delay = 2.0 if is_retry else 4.0
-            print(f"[{chat_id}] ⏳ Waiting exactly {delay}s...", flush=True)
+            print(f"[{chat_id}] ⏳ Simulating typing for {delay}s...", flush=True)
             
-            await asyncio.sleep(delay)
+            # 🗣 HUMAN TYPING MIMIC
+            async with client.action(chat_id, 'typing'):
+                await asyncio.sleep(delay)
             
             state["last_submitted_word"] = word 
             await client.send_message(chat_id, word)
@@ -135,7 +137,10 @@ async def master_game_handler(event):
         
         if target_phrase in bot_text:
             print(f"[{chat_id}] 🎯 It's my turn! Turn Lock OPEN.", flush=True)
+            state["my_turn"] = True
             asyncio.create_task(submit_word(chat_id, bot_text, state, is_retry=False))
+        else:
+            state["my_turn"] = False
 
     error_phrases = [
         "has been used", "not a valid word", "invalid", 
@@ -144,19 +149,36 @@ async def master_game_handler(event):
     ]
     
     if any(phrase in bot_text for phrase in error_phrases):
-        if MY_USERNAME.lower() in bot_text:
-            if state["last_submitted_word"]:
-                state["used_words"].add(state["last_submitted_word"])
-                print(f"[{chat_id}] 🚫 Added REJECTED word to Blacklist: '{state['last_submitted_word']}'", flush=True)
+        last_word = state.get("last_submitted_word", "").lower()
+        
+        # 🛡️ SABOTAGE PROTECTION: Only trigger if OUR EXACT WORD is in the error message
+        if state["my_turn"] and last_word and last_word in bot_text:
             
-            print(f"[{chat_id}] ❌ Word rejected! Forcing 2.0s retry...", flush=True)
+            # 📏 ADAPTIVE RULE PARSER
+            new_len_match = re.search(r'less than (\d+)', bot_text)
+            if new_len_match:
+                new_len = new_len_match.group(1)
+                state["current_constraints"] += f" at least {new_len} letters"
+                print(f"[{chat_id}] 📏 Dynamic Rule Update: Now requiring {new_len} letters.", flush=True)
+
+            state["used_words"].add(last_word)
+            print(f"[{chat_id}] 🚫 Added REJECTED word to Blacklist: '{last_word}'", flush=True)
+            
+            print(f"[{chat_id}] ❌ Our word was rejected! Forcing 2.0s retry...", flush=True)
+            
+            # Clear the word so we don't accidentally retry multiple times for the same error
+            state["last_submitted_word"] = "" 
             asyncio.create_task(submit_word(chat_id, state["current_constraints"], state, is_retry=True))
+        else:
+            # If the error doesn't contain our word, it was someone else messing around
+            pass
 
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
         print(f"[{chat_id}] 🏁 Game over/Elimination detected. Wiping isolated memory.", flush=True)
         state["used_words"].clear()
         state["last_submitted_word"] = ""
+        state["my_turn"] = False
 
-print(f"V17 Smart Sizing Bot ({MY_USERNAME}) is running!", flush=True)
+print(f"V19 Bulletproof Mimic Bot ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
