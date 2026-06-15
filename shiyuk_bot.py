@@ -12,7 +12,7 @@ from flask import Flask
 from threading import Thread
 
 # ==========================================
-# 📚 LOCAL DICTIONARY DOWNLOADER 
+# 📚 DICTIONARY & JSON INJECTION
 # ==========================================
 print("📚 Downloading English dictionary for SHIYUK...", flush=True) 
 try:
@@ -20,10 +20,28 @@ try:
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     response = urllib.request.urlopen(req)
     VALID_WORDS = {w.decode('utf-8').strip().lower() for w in response.read().splitlines() if w.decode('utf-8').strip().isalpha()}
-    print(f"✅ Loaded {len(VALID_WORDS)} valid words into memory.", flush=True)
+    print(f"✅ Loaded {len(VALID_WORDS)} base words into memory.", flush=True)
 except Exception as e:
-    print(f"⚠️ Failed to download dictionary: {e}. Bot will rely entirely on cloud APIs.", flush=True)
+    print(f"⚠️ Failed to download dictionary: {e}", flush=True)
     VALID_WORDS = set()
+
+# 🧠 INJECT CUSTOM VERIFIED JSON
+JSON_DB_FILE = "verified_database.json"
+if os.path.exists(JSON_DB_FILE):
+    try:
+        with open(JSON_DB_FILE, "r") as f:
+            custom_data = json.load(f)
+            # Only add words that were marked as True (Validated)
+            added_count = 0
+            for word, is_valid in custom_data.items():
+                if is_valid and word not in VALID_WORDS:
+                    VALID_WORDS.add(word)
+                    added_count += 1
+        print(f"🧬 Injected {added_count} custom verified words from {JSON_DB_FILE}.", flush=True)
+    except Exception as e:
+        print(f"⚠️ Failed to load custom JSON: {e}", flush=True)
+else:
+    print("ℹ️ No verified_database.json found. Running on base dictionary only.", flush=True)
 
 # ==========================================
 # 🌐 KEEP-ALIVE SERVER & WEB DASHBOARD
@@ -56,7 +74,8 @@ API_HASH = '3d8e9f2619d7d993d1f943181eb4e8c3'
 MY_USERNAME = "SHIYUK"  
 GAME_BOT = "on9wordchainbot"   
 
-SESSION_STRING = "1BVtsOG8Bu0vGTorGeN8Su6IfvnUvKT3UssOn1xiZZHdTAUS8VsKWJYykuKanuG3xpyBbtukjORI0SYVhyJvaLavuZg62dJttLaIfwDalOdVSN8IwKiYq-JgWjoUMLyVPJPytHY427yPQPDXLlo9ncDJt3iRTYxMygSGGb0Twvm8hp_ecjDMSfOupjNifZqzQ2X9QQFkTF76JOrqpECPDabl8zP5NQUNq_kkts6Q0t1XNUkialllZyZJmmS5LjGvq2l2YJjyIVurQi8u0-V-BDaxVIA3sxNhb_xdCCs2-YIBOHjjBY_y86KwKeERofz7TR1ikL4HWHfjCe017QKJknZKVvXWOSgs="
+# ⚠️ PASTE YOUR NEW STRING HERE:
+SESSION_STRING = "1BVtsOG8Buw8lZYldaorQCkkSxpqRMUDxrn1qqCvHzlQfNsypt72Hy8W30MtCkC911vo60Jse-h8R3TU7w3-2bE9OOWAkPNtsQ6H_N7ueBRT_4yysTfxixPklujH-uD_hCY-VjCnojsAARmHLzsq-Vij_T5q2ZWqx-Le07TRWrjHLHhIBeRyEDIiMje_yLKerclONxzvfxlUFaKGYzD2Two9MOiDYidlAB8wshOqEpYFAACk1nziicGyx4Y9RyuNWk-9CuR_oJt62JwcpiLrPNilZnsWkK2jjdTgPZA_EqN_K1_7SNiM9sIynlPRbSQi30eiQRTJzngUkpvpKy2D9A4p1kpKSmNo="
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
@@ -97,14 +116,14 @@ def update_dashboard(chat_id, state):
     print(report, flush=True)
 
 # ==========================================
-# ⚙️ ADVANCED DIAGNOSTIC SOLVER
+# ⚙️ ADVANCED DIAGNOSTIC SOLVER (OFFLINE STRICT SIZING)
 # ==========================================
 async def submit_word(chat_id, constraints, state, is_retry=False):
     if not is_retry:
         state["turn_start_time"] = time.time()
         
     try:
-        state["diagnostic_reason"] = "Processing rules and scanning local 370k dictionary."
+        state["diagnostic_reason"] = "Processing rules and scanning local dictionaries."
         
         start_match = re.search(r'start with ([a-z])', constraints, re.IGNORECASE)
         length_matches = re.findall(r'at least (\d+) letters', constraints, re.IGNORECASE)
@@ -122,30 +141,20 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             if w in state["used_words"]: continue
             valid_options.append(w)
             
-        if len(valid_options) < 15:
-            state["diagnostic_reason"] = "Local database depleted. Querying Datamuse API."
-            try:
-                query_sp = (s_char if s_char else "") + ('?' * max(0, min_len - 1)) + '*'
-                api_url = f"https://api.datamuse.com/words?sp={query_sp}&max=1000"
-                
-                # Added explicit 5-second timeout to prevent infinite hanging
-                req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    api_data = json.loads(response.read().decode('utf-8'))
-                
-                for item in api_data:
-                    w = item['word'].lower()
-                    if w.isalpha() and (not i_char or i_char in w) and w not in state["used_words"] and w not in valid_options:
-                        valid_options.append(w)
-                        
-            except asyncio.TimeoutError:
-                state["diagnostic_reason"] = "NETWORK FAILURE: Datamuse API stalled and timed out."
-            except Exception as e:
-                state["diagnostic_reason"] = f"API FAILURE: Datamuse cloud returned an error ({e}). Local pool exhausted."
-            
         if valid_options:
+            # 🛡️ STRICT AMMO CONSERVATION LOGIC
+            # 1. Sort all valid options from shortest to longest
+            valid_options.sort(key=len)
+            
+            # 2. Extract only the words that are within +2 of the minimum length
             preferred_options = [w for w in valid_options if len(w) <= min_len + 2]
-            word = random.choice(preferred_options) if preferred_options else random.choice(valid_options)
+            
+            if preferred_options:
+                word = random.choice(preferred_options)
+            else:
+                # 3. SAFETY FALLBACK: If we MUST use a longer word, pick the absolute shortest one remaining.
+                # Because the list is sorted by length, valid_options[0] is guaranteed to be the shortest.
+                word = valid_options[0] 
             
             delay = 1.0 if is_retry else random.uniform(3.0, 4.5)
             elapsed = time.time() - state["turn_start_time"]
@@ -177,7 +186,7 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             
             state["diagnostic_reason"] = f"GAME BOT DELAY: Sent '{word}' successfully. Waiting for game bot validation."
         else:
-            state["diagnostic_reason"] = f"DICT EXHAUSTION: No valid words exist in local storage or cloud databases matching constraints: Start='{s_char}', Min={min_len}, Contain='{i_char}'."
+            state["diagnostic_reason"] = f"DICT EXHAUSTION: No valid words exist in local storage or custom JSON matching constraints: Start='{s_char}', Min={min_len}, Contain='{i_char}'."
             
     except Exception as e:
         state["diagnostic_reason"] = f"INTERNAL ENGINE CRASH: {e}"
@@ -233,7 +242,6 @@ async def master_game_handler(event):
 
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
         if MY_USERNAME.lower() in bot_text or "game over" in bot_text:
-            # Check if the text implies a silent drop
             if state["diagnostic_reason"] in ["IDLE: Waiting for opponent turn to conclude.", "Waiting for a game to start..."]:
                 state["diagnostic_reason"] = "SILENT TIMEOUT: Eliminated while idle. The bot likely missed its turn event due to network lag or dropped Telethon event."
             update_dashboard(chat_id, state)
@@ -243,6 +251,6 @@ async def master_game_handler(event):
         state["word_ledger"].clear()
         state["my_turn"] = False
 
-print(f"V23 Comprehensive Diagnostic Bot ({MY_USERNAME}) is running!", flush=True)
+print(f"V24 Local JSON & Ammo Conservation Bot ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
