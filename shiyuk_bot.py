@@ -45,23 +45,6 @@ if os.path.exists(JSON_DB_FILE):
     except Exception as e:
         print(f"⚠️ Failed to load custom JSON: {e}", flush=True)
 
-# 🔥 PRIORITY FILE INJECTION (y.txt, e.txt, x.txt)
-PRIORITY_WORDS = set()
-for txt_file in ["y.txt", "e.txt", "x.txt"]:
-    if os.path.exists(txt_file):
-        try:
-            with open(txt_file, "r", encoding="utf-8") as f:
-                count = 0
-                for line in f:
-                    w = line.strip().lower()
-                    if w.isalpha():
-                        PRIORITY_WORDS.add(w)
-                        VALID_WORDS.add(w) # Ensure they also exist in master dictionary
-                        count += 1
-            print(f"🌾 Loaded {count} harvested priority words from {txt_file}.", flush=True)
-        except Exception as e:
-            print(f"⚠️ Failed to load {txt_file}: {e}", flush=True)
-
 # ==========================================
 # 🌐 KEEP-ALIVE SERVER
 # ==========================================
@@ -97,11 +80,12 @@ CHAIN_GAME_BOT = "on9wordchainbot"
 SEEK_GAME_BOT = "WordSeekBot"
 
 # 🔑 HARDCODED TELEGRAM SESSION
-SESSION_STRING = "1BVtsOKEBuzMKIoBXzdkfBBpaqSDeoybexhlvhv2ZMip193iDtbPNl1pRjLW28xaVBwviv69c4yXpEzHy1om6Fgk8Auzr4N7OOdv89kUNFgVM4HF9heYq19LBbdQK-da5ZrVqrCE4bMjXjvR8EPYz0Tg8tVpxDLhhzJ2QYofjC7_1XANlx9ARLReBLLCyThexBVTvjVq7FGvozoxafrerVKJ1_La2-ydhqsvvcbM0ks0M3cjPteGyIsROBoDuQ78QvJ1H3haxl9ze7kL1hv5pOOgAKHNbdZE0sWnAlctjsRGs7wb82RxUsmkXux0gtl5guk1omak7U_hbZSTm8I3jRi9bbn15_Ls="
+SESSION_STRING = "1BVtsOKEBuzmiafMPbXFYWh6JdL1E7WYgRv6A_lok4YQ9z1r_Y_YN1LASuy1TYRDipL40m5ayhAj90mXz7Q3tdhvHzxksI1xMyoPqyjbdaxbMUoPc3_7PpSfkCKYCn9hWoOkO0_amIR8hPvJGSRfnRzKwH7oIZPwGNL_1uy7AcHZWN-3Ll5jCpuTPjyLz-DIEvAMhku4HeQo3FXqvy0V92D8iaiUf6_6rQwMqdL4M13mnBqLif-bBPm2aFDMJH6W0ernef0tCH3pj1qmD_TXMtjbY2PYwOiKiqHgEox_z0VfWWj7mvbOZLnMqAtat2chQQ2Us3aQ2KtD-_snyqTMjIc50YjnWtng="
+
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ==========================================
-# 🟩 AGENT 1: WORDSEEK (PERFECT MEMORY)
+# 🟩 AGENT 1: WORDSEEK (WITH AUTHORIZATION GATE)
 # ==========================================
 wordseek_state = {}
 
@@ -111,9 +95,22 @@ def get_wordseek_state(chat_id):
             "active": False,
             "length": 5,
             "pool": [],
-            "processed_feedback": set() 
+            "processed_feedback": set(),
+            "authorized": False  # 🔥 NEW: Hidden gate variable
         }
     return wordseek_state[chat_id]
+
+# 🔥 NEW: Outgoing monitor to watch for your execution commands or "wait" trigger
+@client.on(events.NewMessage(outgoing=True))
+async def user_command_monitor(event):
+    chat_id = event.chat_id
+    text = event.raw_text.strip().lower()
+    
+    # Triggered if you say 'wait', or start a match yourself via /new or pointing to the bot
+    if text == "wait" or text.startswith("/new") or "wordseek" in text:
+        state = get_wordseek_state(chat_id)
+        state["authorized"] = True
+        print(f"🔓 WordSeek Gate Unlocked for chat {chat_id} via trigger: '{text}'", flush=True)
 
 def filter_wordseek_pool(pool, guess, feedback):
     new_pool = []
@@ -175,8 +172,13 @@ async def wordseek_handler(event):
         state["length"] = length
         state["pool"] = [w for w in VALID_WORDS if len(w) == length]
         state["processed_feedback"] = set()
-        print(f"🧩 WordSeek Started! Target Length: {length}. Possible Words: {len(state['pool'])}")
+        print(f"🧩 WordSeek Match Detected! Target Length: {length}.", flush=True)
         
+        # 🔥 PROTECTION GATE: Stand down if game wasn't authorized by you yet
+        if not state["authorized"]:
+            print("zzz Standing down. Match started by someone else. Type 'wait' to join.", flush=True)
+            return
+            
         first_guess = random.choice(state["pool"])
         state["pool"].remove(first_guess)
         
@@ -199,10 +201,15 @@ async def wordseek_handler(event):
                         break
         
         if not state["active"]: return
+        
+        # 🔥 PROTECTION GATE: Refuse to process grid updates if you haven't authorized play
+        if not state["authorized"]:
+            return
 
         if '🟩'*state["length"] in text:
             print("🏆 WordSeek Solved!")
             state["active"] = False
+            state["authorized"] = False # Reset gate
             return
 
         lines = [line.strip() for line in text.split('\n') if any(e in line for e in ['🟥', '🟨', '🟩'])]
@@ -236,13 +243,15 @@ async def wordseek_handler(event):
         else:
             print("❌ WordSeek Dictionary Exhausted!")
             state["active"] = False
+            state["authorized"] = False
             
     if "Game over" in text or "won the game" in text.lower():
         state["active"] = False
+        state["authorized"] = False # 🔥 Force relock for the next match
 
 
 # ==========================================
-# ⛓️ AGENT 2: WORDCHAIN ENGINE (Y-E-X PRIORITY)
+# ⛓️ AGENT 2: WORDCHAIN ENGINE
 # ==========================================
 active_games = {}
 
@@ -296,40 +305,18 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             valid_options.append(w)
                 
         if valid_options:
+            KILLER_ENDINGS = ['x', 'j', 'q', 'z', 'k', 'v', 'y']
             valid_options.sort(key=len)
             preferred_len_limit = min_len + 2
             
-            # 🔥 1. CHECK HARVESTED FILES FIRST
-            # Extracts only valid words that came from your .txt files
-            priority_options = [w for w in valid_options if w in PRIORITY_WORDS]
-            
-            # If priority words exist, use them exclusively. Otherwise, fall back to the dictionary.
-            active_pool = priority_options if priority_options else valid_options
-            
-            # 🔥 2. RANDOMIZED Y-E-X ATTACK
-            killer_letters = ['y', 'e', 'x']
-            random.shuffle(killer_letters) # Mix up the attack order (e.g., e -> y -> x)
-            
-            tier_1 = []
-            tier_2 = []
-            
-            # Search the pool for the randomly shuffled letters
-            for letter in killer_letters:
-                options = [w for w in active_pool if w[-1] == letter]
-                if options:
-                    short_options = [w for w in options if len(w) <= preferred_len_limit]
-                    if short_options:
-                        tier_1 = short_options
-                        break 
-                    elif not tier_2:
-                        tier_2 = options 
-                        
-            tier_3 = [w for w in active_pool if len(w) <= preferred_len_limit]
+            tier_1 = [w for w in valid_options if len(w) <= preferred_len_limit and w[-1] in KILLER_ENDINGS]
+            tier_2 = [w for w in valid_options if w[-1] in KILLER_ENDINGS]
+            tier_3 = [w for w in valid_options if len(w) <= preferred_len_limit]
             
             if tier_1: word = random.choice(tier_1)
             elif tier_2: word = tier_2[0]
             elif tier_3: word = random.choice(tier_3)
-            else: word = active_pool[0]
+            else: word = valid_options[0]
 
             delay = 1.0 if is_retry else random.choice([4.0, 5.0, 6.0])
             elapsed = time.time() - state["turn_start_time"]
@@ -347,8 +334,7 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             
             try:
                 await client.send_message(chat_id, word)
-                source_log = "🌾 [TXT]" if word in PRIORITY_WORDS else "📚 [DICT]"
-                print(f"🏹 PLAYED {source_log}: {word} (Len: {len(word)}, Ends: {word[-1].upper()})", flush=True)
+                print(f"🏹 PLAYED: {word} (Len: {len(word)}, Ends: {word[-1].upper()})", flush=True)
             except FloodWaitError:
                 return
                 
@@ -411,6 +397,6 @@ async def chain_game_handler(event):
         state["word_ledger"].clear()
         state["my_turn"] = False
 
-print(f"V36 Y-E-X Priority Engine ({MY_USERNAME}) is running!", flush=True)
+print(f"V37 Gated Multi-Agent Engine ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
