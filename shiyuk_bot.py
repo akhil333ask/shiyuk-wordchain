@@ -96,17 +96,15 @@ def get_wordseek_state(chat_id):
             "length": 5,
             "pool": [],
             "processed_feedback": set(),
-            "authorized": False  # 🔥 NEW: Hidden gate variable
+            "authorized": False 
         }
     return wordseek_state[chat_id]
 
-# 🔥 NEW: Outgoing monitor to watch for your execution commands or "wait" trigger
 @client.on(events.NewMessage(outgoing=True))
 async def user_command_monitor(event):
     chat_id = event.chat_id
     text = event.raw_text.strip().lower()
     
-    # Triggered if you say 'wait', or start a match yourself via /new or pointing to the bot
     if text == "wait" or text.startswith("/new") or "wordseek" in text:
         state = get_wordseek_state(chat_id)
         state["authorized"] = True
@@ -174,7 +172,6 @@ async def wordseek_handler(event):
         state["processed_feedback"] = set()
         print(f"🧩 WordSeek Match Detected! Target Length: {length}.", flush=True)
         
-        # 🔥 PROTECTION GATE: Stand down if game wasn't authorized by you yet
         if not state["authorized"]:
             print("zzz Standing down. Match started by someone else. Type 'wait' to join.", flush=True)
             return
@@ -201,15 +198,12 @@ async def wordseek_handler(event):
                         break
         
         if not state["active"]: return
-        
-        # 🔥 PROTECTION GATE: Refuse to process grid updates if you haven't authorized play
-        if not state["authorized"]:
-            return
+        if not state["authorized"]: return
 
         if '🟩'*state["length"] in text:
             print("🏆 WordSeek Solved!")
             state["active"] = False
-            state["authorized"] = False # Reset gate
+            state["authorized"] = False 
             return
 
         lines = [line.strip() for line in text.split('\n') if any(e in line for e in ['🟥', '🟨', '🟩'])]
@@ -226,7 +220,6 @@ async def wordseek_handler(event):
             guess_word = words[-1].lower()
             
             if len(feedback) != state["length"] or len(guess_word) != state["length"]: continue
-            
             if guess_word in state["processed_feedback"]: continue 
             
             state["processed_feedback"].add(guess_word)
@@ -247,11 +240,11 @@ async def wordseek_handler(event):
             
     if "Game over" in text or "won the game" in text.lower():
         state["active"] = False
-        state["authorized"] = False # 🔥 Force relock for the next match
+        state["authorized"] = False 
 
 
 # ==========================================
-# ⛓️ AGENT 2: WORDCHAIN ENGINE
+# ⛓️ AGENT 2: WORDCHAIN ENGINE (V38 ANTI-SWEAT)
 # ==========================================
 active_games = {}
 
@@ -263,6 +256,8 @@ def get_game_state(chat_id):
             "last_submitted_word": "",
             "my_turn": False,
             "turn_start_time": 0,
+            "last_word_sent_time": 0,    # 🔥 NEW: Anti-cheat stopwatch
+            "sweat_detected": False,     # 🔥 NEW: Pattern breaker flag
             "diagnostic_reason": "Waiting for a game to start...", 
             "word_ledger": {} 
         }
@@ -305,9 +300,16 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             valid_options.append(w)
                 
         if valid_options:
-            KILLER_ENDINGS = ['x', 'j', 'q', 'z', 'k', 'v', 'y']
             valid_options.sort(key=len)
             preferred_len_limit = min_len + 2
+            
+            # 🔥 ANTI-SWEAT ATTACK LOGIC
+            if state.get("sweat_detected"):
+                # Break their confidence by deliberately NOT sending a 'Y'
+                KILLER_ENDINGS = ['x', 'e', 'k', 'v', 'z', 'j', 'q']
+            else:
+                # Standard pattern: relentlessly attack with 'Y'
+                KILLER_ENDINGS = ['y']
             
             tier_1 = [w for w in valid_options if len(w) <= preferred_len_limit and w[-1] in KILLER_ENDINGS]
             tier_2 = [w for w in valid_options if w[-1] in KILLER_ENDINGS]
@@ -318,7 +320,8 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             elif tier_3: word = random.choice(tier_3)
             else: word = valid_options[0]
 
-            delay = 1.0 if is_retry else random.choice([4.0, 5.0, 6.0])
+            # 🔥 NEW: Adjusted speeds (2.0, 4.0, 5.0)
+            delay = 1.0 if is_retry else random.choice([2.0, 4.0, 5.0])
             elapsed = time.time() - state["turn_start_time"]
             
             state["diagnostic_reason"] = f"TIMEOUT: Selected '{word}', ran out of time ({elapsed:.1f}s elapsed)."
@@ -334,7 +337,11 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             
             try:
                 await client.send_message(chat_id, word)
-                print(f"🏹 PLAYED: {word} (Len: {len(word)}, Ends: {word[-1].upper()})", flush=True)
+                # 🔥 START THE STOPWATCH
+                state["last_word_sent_time"] = time.time()
+                
+                tactic = "🛡️ PIVOT" if state.get("sweat_detected") else "⚔️ Y-ATK"
+                print(f"🏹 PLAYED [{tactic}]: {word} (Len: {len(word)}, Ends: {word[-1].upper()})", flush=True)
             except FloodWaitError:
                 return
                 
@@ -366,6 +373,19 @@ async def chain_game_handler(event):
         
         if target_phrase in bot_text:
             state["my_turn"] = True
+            
+            # 🔥 ANTI-SWEAT DETECTION
+            last_sent = state.get("last_word_sent_time", 0)
+            if last_sent > 0:
+                round_trip = time.time() - last_sent
+                # If round trip is < 6 seconds, the opponent pasted/pre-typed instantly
+                if round_trip < 6.0:
+                    state["sweat_detected"] = True
+                    print(f"\n🕵️‍♂️ PRE-TYPING DETECTED! (Opponent replied in {round_trip:.1f}s). Changing attack vector...\n", flush=True)
+                else:
+                    state["sweat_detected"] = False
+                    print(f"⏱️ Turn cycle normal ({round_trip:.1f}s). Resuming Y-attack.", flush=True)
+            
             asyncio.create_task(submit_word(chat_id, bot_text, state, is_retry=False))
         else:
             state["my_turn"] = False
@@ -387,6 +407,8 @@ async def chain_game_handler(event):
             state["used_words"].add(last_word)
             state["diagnostic_reason"] = f"REJECTION LOOP: Bot rejected '{last_word}'. Attempting recovery."
             state["last_submitted_word"] = "" 
+            # Cancel the stopwatch so we don't accidentally log our own retry as a fast opponent
+            state["last_word_sent_time"] = 0 
             asyncio.create_task(submit_word(chat_id, state["current_constraints"], state, is_retry=True))
 
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
@@ -394,9 +416,11 @@ async def chain_game_handler(event):
             update_dashboard(chat_id, state)
         state["used_words"].clear()
         state["last_submitted_word"] = ""
+        state["last_word_sent_time"] = 0
+        state["sweat_detected"] = False
         state["word_ledger"].clear()
         state["my_turn"] = False
 
-print(f"V37 Gated Multi-Agent Engine ({MY_USERNAME}) is running!", flush=True)
+print(f"V38 Anti-Sweat Engine ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
