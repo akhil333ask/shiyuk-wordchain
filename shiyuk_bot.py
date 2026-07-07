@@ -46,10 +46,10 @@ if os.path.exists(JSON_DB_FILE):
         print(f"⚠️ Failed to load custom JSON: {e}", flush=True)
 
 # ==========================================
-# 🌐 KEEP-ALIVE SERVER
+# 🌐 KEEP-ALIVE SERVER (FOR RENDER)
 # ==========================================
 app = Flask(__name__)
-latest_diagnostic_report = "Bot is running. No games have been lost yet! 🚀"
+latest_diagnostic_report = "Bot is running on Render. No games have been lost yet! 🚀"
 
 @app.route('/')
 def home():
@@ -85,7 +85,7 @@ SESSION_STRING = "1BVtsOKEBuzmiafMPbXFYWh6JdL1E7WYgRv6A_lok4YQ9z1r_Y_YN1LASuy1TY
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ==========================================
-# 🟩 AGENT 1: WORDSEEK (WITH AUTHORIZATION GATE)
+# 🟩 AGENT 1: WORDSEEK (V40 AUTO-WIPE GATE)
 # ==========================================
 wordseek_state = {}
 
@@ -96,19 +96,39 @@ def get_wordseek_state(chat_id):
             "length": 5,
             "pool": [],
             "processed_feedback": set(),
-            "authorized": False 
+            "authorized": False,
+            "last_auth_time": 0  # 🔥 NEW: Tracks exact time of your commands
         }
     return wordseek_state[chat_id]
+
+def wipe_wordseek_memory(chat_id):
+    """Hard wipes the state to completely prevent memory leaks."""
+    wordseek_state[chat_id] = {
+        "active": False,
+        "length": 5,
+        "pool": [],
+        "processed_feedback": set(),
+        "authorized": False,
+        "last_auth_time": 0
+    }
 
 @client.on(events.NewMessage(outgoing=True))
 async def user_command_monitor(event):
     chat_id = event.chat_id
     text = event.raw_text.strip().lower()
     
-    if text == "wait" or text.startswith("/new") or "wordseek" in text:
+    # 🔥 UNLOCK GATE: Records the exact second you authorized play
+    if text in ["wait", "play"] or text.startswith("/new"):
         state = get_wordseek_state(chat_id)
         state["authorized"] = True
+        state["last_auth_time"] = time.time()
         print(f"🔓 WordSeek Gate Unlocked for chat {chat_id} via trigger: '{text}'", flush=True)
+
+    # 🔥 MANUAL WIPE: Instantly erases memory if you end the game manually
+    if text.startswith("/end") or text.startswith("/lock"):
+        wipe_wordseek_memory(chat_id)
+        print(f"🔒 WordSeek Gate manually wiped & locked.", flush=True)
+
 
 def filter_wordseek_pool(pool, guess, feedback):
     new_pool = []
@@ -165,6 +185,12 @@ async def wordseek_handler(event):
     
     start_match = re.search(r'Guess the (\d+)-letter word', text, re.IGNORECASE)
     if start_match:
+        # 🔥 TTL SECURITY CHECK: If you didn't type an auth command in the last 30 seconds, 
+        # it is impossible that this is your game. Forcefully lock the gate to prevent leaks.
+        time_since_auth = time.time() - state.get("last_auth_time", 0)
+        if time_since_auth > 30:
+            state["authorized"] = False
+
         length = int(start_match.group(1))
         state["active"] = True
         state["length"] = length
@@ -173,7 +199,7 @@ async def wordseek_handler(event):
         print(f"🧩 WordSeek Match Detected! Target Length: {length}.", flush=True)
         
         if not state["authorized"]:
-            print("zzz Standing down. Match started by someone else. Type 'wait' to join.", flush=True)
+            print("zzz Standing down. Match started by someone else. Type 'wait' or 'play' to join.", flush=True)
             return
             
         first_guess = random.choice(state["pool"])
@@ -201,9 +227,8 @@ async def wordseek_handler(event):
         if not state["authorized"]: return
 
         if '🟩'*state["length"] in text:
-            print("🏆 WordSeek Solved!")
-            state["active"] = False
-            state["authorized"] = False 
+            print("🏆 WordSeek Solved! Wiping memory.")
+            wipe_wordseek_memory(chat_id) 
             return
 
         lines = [line.strip() for line in text.split('\n') if any(e in line for e in ['🟥', '🟨', '🟩'])]
@@ -235,12 +260,17 @@ async def wordseek_handler(event):
             asyncio.create_task(execute_wordseek_guess(chat_id, next_guess, human_delay))
         else:
             print("❌ WordSeek Dictionary Exhausted!")
-            state["active"] = False
-            state["authorized"] = False
+            wipe_wordseek_memory(chat_id)
             
-    if "Game over" in text or "won the game" in text.lower():
-        state["active"] = False
-        state["authorized"] = False 
+    # 🔥 EXTENDED AUTO-WIPE: Traps every possible game-ending state
+    end_triggers = [
+        "game over", "won the game", "the word was", 
+        "game ended", "ended the game", "time's up",
+        "time is up", "guessed the word"
+    ]
+    if any(trigger in text.lower() for trigger in end_triggers):
+        print("🛑 WordSeek Match Concluded. Wiping memory.", flush=True)
+        wipe_wordseek_memory(chat_id)
 
 
 # ==========================================
@@ -256,8 +286,8 @@ def get_game_state(chat_id):
             "last_submitted_word": "",
             "my_turn": False,
             "turn_start_time": 0,
-            "last_word_sent_time": 0,    # 🔥 NEW: Anti-cheat stopwatch
-            "sweat_detected": False,     # 🔥 NEW: Pattern breaker flag
+            "last_word_sent_time": 0,
+            "sweat_detected": False,
             "diagnostic_reason": "Waiting for a game to start...", 
             "word_ledger": {} 
         }
@@ -305,10 +335,8 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             
             # 🔥 ANTI-SWEAT ATTACK LOGIC
             if state.get("sweat_detected"):
-                # Break their confidence by deliberately NOT sending a 'Y'
                 KILLER_ENDINGS = ['x', 'e', 'k', 'v', 'z', 'j', 'q']
             else:
-                # Standard pattern: relentlessly attack with 'Y'
                 KILLER_ENDINGS = ['y']
             
             tier_1 = [w for w in valid_options if len(w) <= preferred_len_limit and w[-1] in KILLER_ENDINGS]
@@ -320,7 +348,6 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             elif tier_3: word = random.choice(tier_3)
             else: word = valid_options[0]
 
-            # 🔥 NEW: Adjusted speeds (2.0, 4.0, 5.0)
             delay = 1.0 if is_retry else random.choice([2.0, 4.0, 5.0])
             elapsed = time.time() - state["turn_start_time"]
             
@@ -337,7 +364,6 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             
             try:
                 await client.send_message(chat_id, word)
-                # 🔥 START THE STOPWATCH
                 state["last_word_sent_time"] = time.time()
                 
                 tactic = "🛡️ PIVOT" if state.get("sweat_detected") else "⚔️ Y-ATK"
@@ -378,7 +404,6 @@ async def chain_game_handler(event):
             last_sent = state.get("last_word_sent_time", 0)
             if last_sent > 0:
                 round_trip = time.time() - last_sent
-                # If round trip is < 6 seconds, the opponent pasted/pre-typed instantly
                 if round_trip < 6.0:
                     state["sweat_detected"] = True
                     print(f"\n🕵️‍♂️ PRE-TYPING DETECTED! (Opponent replied in {round_trip:.1f}s). Changing attack vector...\n", flush=True)
@@ -407,7 +432,6 @@ async def chain_game_handler(event):
             state["used_words"].add(last_word)
             state["diagnostic_reason"] = f"REJECTION LOOP: Bot rejected '{last_word}'. Attempting recovery."
             state["last_submitted_word"] = "" 
-            # Cancel the stopwatch so we don't accidentally log our own retry as a fast opponent
             state["last_word_sent_time"] = 0 
             asyncio.create_task(submit_word(chat_id, state["current_constraints"], state, is_retry=True))
 
@@ -421,6 +445,6 @@ async def chain_game_handler(event):
         state["word_ledger"].clear()
         state["my_turn"] = False
 
-print(f"V38 Anti-Sweat Engine ({MY_USERNAME}) is running!", flush=True)
+print(f"V40 Cloud Memory-Wipe Engine ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
