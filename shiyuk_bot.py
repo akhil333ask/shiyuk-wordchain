@@ -97,7 +97,7 @@ CHAIN_GAME_BOT = "on9wordchainbot"
 SEEK_GAME_BOT = "WordSeekBot"
 
 # 🔑 HARDCODED TELEGRAM SESSION
-SESSION_STRING = "1BVtsOKEBu0AVWVtl2fKdRp1gA6lzqaY6g15MJceNrHGsSeYq0IH3XFgfKcb6bceBSoClGz3d5VJxiOzhxeIpAB-kTxOi71OlqYnVCdJAF0LFFsZLT9OlJ7ycbb9dfAbkaSQK7a5HOPyhrXn3-63EW2cXe19n2JQlQGH4Q6OvDtC7t8aUAN4_oja8DYJs1PspwEExlX5LjBG09sHpxoYQwPaHwp1oABxWgbOrG8flgKfljYmLDGaWvWsXb7RwCoFeC--OmJvUyaqwjE7wwrKQb1KNJCNNhNsXxMxwlQ4luzbvRq6WFV5_5sIfnYW0EdSsvMZO6pl6jldaLhh7uWYK6sxzP0HghuQ="
+SESSION_STRING = "1BVtsOKEBuzMKIoBXzdkfBBpaqSDeoybexhlvhv2ZMip193iDtbPNl1pRjLW28xaVBwviv69c4yXpEzHy1om6Fgk8Auzr4N7OOdv89kUNFgVM4HF9heYq19LBbdQK-da5ZrVqrCE4bMjXjvR8EPYz0Tg8tVpxDLhhzJ2QYofjC7_1XANlx9ARLReBLLCyThexBVTvjVq7FGvozoxafrerVKJ1_La2-ydhqsvvcbM0ks0M3cjPteGyIsROBoDuQ78QvJ1H3haxl9ze7kL1hv5pOOgAKHNbdZE0sWnAlctjsRGs7wb82RxUsmkXux0gtl5guk1omak7U_hbZSTm8I3jRi9bbn15_Ls="
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ==========================================
