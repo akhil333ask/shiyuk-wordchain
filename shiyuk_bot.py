@@ -49,7 +49,7 @@ if os.path.exists(JSON_DB_FILE):
 # 🌐 KEEP-ALIVE SERVER (FOR RENDER)
 # ==========================================
 app = Flask(__name__)
-latest_diagnostic_report = "Bot is running on Render. No games have been lost yet! 🚀"
+latest_diagnostic_report = "Bot is running on Render in Friendly Mode. 🤝"
 
 @app.route('/')
 def home():
@@ -80,12 +80,12 @@ CHAIN_GAME_BOT = "on9wordchainbot"
 SEEK_GAME_BOT = "WordSeekBot"
 
 # 🔑 HARDCODED TELEGRAM SESSION
-SESSION_STRING = "1BVtsOKEBuzmiafMPbXFYWh6JdL1E7WYgRv6A_lok4YQ9z1r_Y_YN1LASuy1TYRDipL40m5ayhAj90mXz7Q3tdhvHzxksI1xMyoPqyjbdaxbMUoPc3_7PpSfkCKYCn9hWoOkO0_amIR8hPvJGSRfnRzKwH7oIZPwGNL_1uy7AcHZWN-3Ll5jCpuTPjyLz-DIEvAMhku4HeQo3FXqvy0V92D8iaiUf6_6rQwMqdL4M13mnBqLif-bBPm2aFDMJH6W0ernef0tCH3pj1qmD_TXMtjbY2PYwOiKiqHgEox_z0VfWWj7mvbOZLnMqAtat2chQQ2Us3aQ2KtD-_snyqTMjIc50YjnWtng="
+SESSION_STRING = "1BVtsOKEBuw6WTGmd_xYLZNoYdtFiSU5QbXMywscUSk8H5FSqgU8RXKH5LZ1Vn-mKjp8e5G2BfuWH9TXhw7i9lbg76pqSazDkaNewcOiXDtRjRmFkZ41o2MOe9HtgYLYDjy9zjrJlsRpqlv0vNx3Gmgd-rsbDx2ENvvq-txX1Tcm-oMKQ3nAOA9I3FsMNEMTjBsRxtFKLApWRG40PFs4FOa7PIPMPiqsUOObrECZnL1bwIxxbVmcZLhjnpD9l4HqNpNRXqyDQcmnIucjpulPsQJwKgbpbc3qc5RqvIrDcXEXBG0LXvglevInzCc5lBHfvnkBXfN8mi7uXUnVDTavmNUWXH5m4GO4="
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 # ==========================================
-# 🟩 AGENT 1: WORDSEEK (V40 AUTO-WIPE GATE)
+# 🟩 AGENT 1: WORDSEEK (AUTO-WIPE GATE)
 # ==========================================
 wordseek_state = {}
 
@@ -97,7 +97,7 @@ def get_wordseek_state(chat_id):
             "pool": [],
             "processed_feedback": set(),
             "authorized": False,
-            "last_auth_time": 0  # 🔥 NEW: Tracks exact time of your commands
+            "last_auth_time": 0
         }
     return wordseek_state[chat_id]
 
@@ -117,18 +117,15 @@ async def user_command_monitor(event):
     chat_id = event.chat_id
     text = event.raw_text.strip().lower()
     
-    # 🔥 UNLOCK GATE: Records the exact second you authorized play
     if text in ["wait", "play"] or text.startswith("/new"):
         state = get_wordseek_state(chat_id)
         state["authorized"] = True
         state["last_auth_time"] = time.time()
         print(f"🔓 WordSeek Gate Unlocked for chat {chat_id} via trigger: '{text}'", flush=True)
 
-    # 🔥 MANUAL WIPE: Instantly erases memory if you end the game manually
     if text.startswith("/end") or text.startswith("/lock"):
         wipe_wordseek_memory(chat_id)
         print(f"🔒 WordSeek Gate manually wiped & locked.", flush=True)
-
 
 def filter_wordseek_pool(pool, guess, feedback):
     new_pool = []
@@ -185,8 +182,6 @@ async def wordseek_handler(event):
     
     start_match = re.search(r'Guess the (\d+)-letter word', text, re.IGNORECASE)
     if start_match:
-        # 🔥 TTL SECURITY CHECK: If you didn't type an auth command in the last 30 seconds, 
-        # it is impossible that this is your game. Forcefully lock the gate to prevent leaks.
         time_since_auth = time.time() - state.get("last_auth_time", 0)
         if time_since_auth > 30:
             state["authorized"] = False
@@ -262,7 +257,6 @@ async def wordseek_handler(event):
             print("❌ WordSeek Dictionary Exhausted!")
             wipe_wordseek_memory(chat_id)
             
-    # 🔥 EXTENDED AUTO-WIPE: Traps every possible game-ending state
     end_triggers = [
         "game over", "won the game", "the word was", 
         "game ended", "ended the game", "time's up",
@@ -274,7 +268,7 @@ async def wordseek_handler(event):
 
 
 # ==========================================
-# ⛓️ AGENT 2: WORDCHAIN ENGINE (V38 ANTI-SWEAT)
+# ⛓️ AGENT 2: WORDCHAIN ENGINE (FRIENDLY MODE)
 # ==========================================
 active_games = {}
 
@@ -286,8 +280,6 @@ def get_game_state(chat_id):
             "last_submitted_word": "",
             "my_turn": False,
             "turn_start_time": 0,
-            "last_word_sent_time": 0,
-            "sweat_detected": False,
             "diagnostic_reason": "Waiting for a game to start...", 
             "word_ledger": {} 
         }
@@ -330,25 +322,19 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             valid_options.append(w)
                 
         if valid_options:
-            valid_options.sort(key=len)
-            preferred_len_limit = min_len + 2
+            # 🤝 FRIENDLY MODE: No killer endings, just random selection
+            preferred_len_limit = min_len + 3 
             
-            # 🔥 ANTI-SWEAT ATTACK LOGIC
-            if state.get("sweat_detected"):
-                KILLER_ENDINGS = ['x', 'e', 'k', 'v', 'z', 'j', 'q']
+            # Try to pick a standard word to keep the game flowing casually
+            casual_options = [w for w in valid_options if len(w) <= preferred_len_limit]
+            
+            if casual_options:
+                word = random.choice(casual_options)
             else:
-                KILLER_ENDINGS = ['y']
-            
-            tier_1 = [w for w in valid_options if len(w) <= preferred_len_limit and w[-1] in KILLER_ENDINGS]
-            tier_2 = [w for w in valid_options if w[-1] in KILLER_ENDINGS]
-            tier_3 = [w for w in valid_options if len(w) <= preferred_len_limit]
-            
-            if tier_1: word = random.choice(tier_1)
-            elif tier_2: word = tier_2[0]
-            elif tier_3: word = random.choice(tier_3)
-            else: word = valid_options[0]
+                word = random.choice(valid_options)
 
-            delay = 1.0 if is_retry else random.choice([2.0, 4.0, 5.0])
+            # 🐢 RELAXED DELAY: Classic 4 to 6 seconds
+            delay = 1.0 if is_retry else random.choice([4.0, 5.0, 6.0])
             elapsed = time.time() - state["turn_start_time"]
             
             state["diagnostic_reason"] = f"TIMEOUT: Selected '{word}', ran out of time ({elapsed:.1f}s elapsed)."
@@ -364,10 +350,7 @@ async def submit_word(chat_id, constraints, state, is_retry=False):
             
             try:
                 await client.send_message(chat_id, word)
-                state["last_word_sent_time"] = time.time()
-                
-                tactic = "🛡️ PIVOT" if state.get("sweat_detected") else "⚔️ Y-ATK"
-                print(f"🏹 PLAYED [{tactic}]: {word} (Len: {len(word)}, Ends: {word[-1].upper()})", flush=True)
+                print(f"🏹 PLAYED (Friendly): {word} (Len: {len(word)}, Ends: {word[-1].upper()})", flush=True)
             except FloodWaitError:
                 return
                 
@@ -399,18 +382,6 @@ async def chain_game_handler(event):
         
         if target_phrase in bot_text:
             state["my_turn"] = True
-            
-            # 🔥 ANTI-SWEAT DETECTION
-            last_sent = state.get("last_word_sent_time", 0)
-            if last_sent > 0:
-                round_trip = time.time() - last_sent
-                if round_trip < 6.0:
-                    state["sweat_detected"] = True
-                    print(f"\n🕵️‍♂️ PRE-TYPING DETECTED! (Opponent replied in {round_trip:.1f}s). Changing attack vector...\n", flush=True)
-                else:
-                    state["sweat_detected"] = False
-                    print(f"⏱️ Turn cycle normal ({round_trip:.1f}s). Resuming Y-attack.", flush=True)
-            
             asyncio.create_task(submit_word(chat_id, bot_text, state, is_retry=False))
         else:
             state["my_turn"] = False
@@ -432,7 +403,6 @@ async def chain_game_handler(event):
             state["used_words"].add(last_word)
             state["diagnostic_reason"] = f"REJECTION LOOP: Bot rejected '{last_word}'. Attempting recovery."
             state["last_submitted_word"] = "" 
-            state["last_word_sent_time"] = 0 
             asyncio.create_task(submit_word(chat_id, state["current_constraints"], state, is_retry=True))
 
     if "eliminated" in bot_text or "game over" in bot_text or "winner" in bot_text:
@@ -440,11 +410,9 @@ async def chain_game_handler(event):
             update_dashboard(chat_id, state)
         state["used_words"].clear()
         state["last_submitted_word"] = ""
-        state["last_word_sent_time"] = 0
-        state["sweat_detected"] = False
         state["word_ledger"].clear()
         state["my_turn"] = False
 
-print(f"V40 Cloud Memory-Wipe Engine ({MY_USERNAME}) is running!", flush=True)
+print(f"V41 Friendly Mode Engine ({MY_USERNAME}) is running!", flush=True)
 client.start()
 client.run_until_disconnected()
