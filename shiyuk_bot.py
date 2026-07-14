@@ -73,14 +73,14 @@ Thread(target=run_server, daemon=True).start()
 # ==========================================
 API_ID = 27611951
 API_HASH = '16c265ac1d31f819b7dd53ce3b3602af'
-MY_USERNAME = "SHIYUK"  
+MY_USERNAME = "TankaJahari"  
 
 # Target Game Bots
 CHAIN_GAME_BOT = "on9wordchainbot"   
 SEEK_GAME_BOT = "WordSeekBot"
 
 # 🔑 HARDCODED TELEGRAM SESSION
-SESSION_STRING = "1BVtsOKEBuycc9uvUewW-iMrmVWzkOFWgCGg1JqNAFlGlLchXvuNlAJyTlBHmRaVZ8FY4LJ3SnKp4U1cc4s0HLhhgl1uAU-r5mywe43Gq0LztDvi5y0rI64g1dBh2Qj1ZfJAlJkdf7uV24hcHwkDFqdRMvzD7dl4qpxFTb9SLapgI0nZ5E8g46e67EFPA4diGTlRc5uxoicTs28Xf6Msb5Q26SYh8Fb8U1HoRhB7DY5OxK9bnqmEdln5GyO4Q8sl6aKMWOoliEzarGWKlP90zwC6e5hBVrWHCVBiPbz2frJaHrWv1uOd3PrV5fbFwSszOntNA6ffNEBjz_KJHKkIe30hqAkLE0CY="
+SESSION_STRING = "1BVtsOKEBu7iyMHUsRmi_HG-Q2eBzYTT9lfB1BMJMj2sVLjD_zDNngrvq5RX6FSyVqGkp5ZPFvpN9wztZ7_Hk84Qi2jgw9_a8C_86y3RHgz0-NmgVg-_Tw8THYq5rQM3LdMgKZqTnSGfIBuf3ParvBLVGaYIJKlZfvy2E9GUxnWR1cVJBLsbCdN6BBAjCxc-672LrmeM2GS44LxpnP-KhDvshaTr65HvEoGnaHrfv3sWsXHE_cvFfpxxJEOsW-xVRXvlViCYSIqt1_6Q1UeJO8rvXbkLieyO4jBKp8SaNccPV9dargP_TOQHtXQ-prjcUY3KMI2_yY28RX7a_mrDV1_Fx731tTFQ="
 
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
