@@ -46,10 +46,10 @@ if os.path.exists(JSON_DB_FILE):
         print(f"⚠️ Failed to load custom JSON: {e}", flush=True)
 
 # ==========================================
-# 🌐 KEEP-ALIVE SERVER (FOR RENDER)
+# 🌐 KEEP-ALIVE SERVER (MODIFIED FOR ALWAYSDATA IPv6)
 # ==========================================
 app = Flask(__name__)
-latest_diagnostic_report = "Bot is running on Render in Friendly Mode. 🤝"
+latest_diagnostic_report = "Bot is running on Alwaysdata in Friendly Mode. 🤝"
 
 @app.route('/')
 def home():
@@ -62,7 +62,8 @@ def logs():
 def run_server():
     try:
         port = int(os.environ.get('PORT', 8080)) 
-        app.run(host='0.0.0.0', port=port)
+        # Changed host from '0.0.0.0' to '::' to pass through Alwaysdata's firewall
+        app.run(host='::', port=port)
     except Exception as e:
         print(f"ℹ️ Local Port Note: Web server paused locally.", flush=True)
 
