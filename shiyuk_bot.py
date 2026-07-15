@@ -59,7 +59,7 @@ def home():
 def logs():
     return f"<body style='background-color:#1e1e1e; color:#00ff00; font-family:monospace; padding:20px;'><pre style='font-size:16px;'>{latest_diagnostic_report}</pre></body>"
 
-def def run_server():
+def run_server():
     try:
         # Alwaysdata injects the correct port into the environment variables
         port = int(os.environ.get('PORT', 8080)) 
