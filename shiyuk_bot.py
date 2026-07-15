@@ -59,13 +59,15 @@ def home():
 def logs():
     return f"<body style='background-color:#1e1e1e; color:#00ff00; font-family:monospace; padding:20px;'><pre style='font-size:16px;'>{latest_diagnostic_report}</pre></body>"
 
-def run_server():
+def def run_server():
     try:
+        # Alwaysdata injects the correct port into the environment variables
         port = int(os.environ.get('PORT', 8080)) 
-        # Changed host from '0.0.0.0' to '::' to pass through Alwaysdata's firewall
-        app.run(host='::', port=port)
+        
+        # We must explicitly tell Flask to bind to IPv6 (::) AND pass the dynamic port 
+        app.run(host='::', port=port, debug=False, use_reloader=False)
     except Exception as e:
-        print(f"ℹ️ Local Port Note: Web server paused locally.", flush=True)
+        print(f"ℹ️ Local Port Note: Web server paused locally. Error: {e}", flush=True)
 
 Thread(target=run_server, daemon=True).start()
 
